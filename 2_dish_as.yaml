@@ -1,0 +1,278 @@
+---
+Parameters:
+  DishKey:
+    Description:  Name of an existing EC2 KeyPair to enable SSH access to the instances. Linked to AWS Parameter
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription:  Must be the name of an existing EC2 KeyPair.
+
+Resources:
+  DishServeVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock:  10.0.0.0/16
+      Tags:
+        - Key:  Name
+          Value:  !Sub  ${AWS::StackName}-VPC
+
+#Subnet Creations
+
+  PrivateSub01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.1.0/24
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  DishServeVpc
+      Tags:
+        - Key:  Name
+          Value:  10.0.1.0-Private
+
+  PrivateSub02:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.2.0/24
+      AvailabilityZone: !Select [1, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  DishServeVpc
+      Tags:
+        - Key:  Name
+          Value:  10.0.2.0-Private
+
+  PrivateSub03:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.3.0/24
+      AvailabilityZone: !Select [2, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  DishServeVpc
+      Tags:
+        - Key:  Name
+          Value:  10.0.3.0-Private
+
+  PublicSub:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.11.0/24
+      MapPublicIpOnLaunch:  True
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  DishServeVpc
+      Tags:
+        - Key:  Name
+          Value:  10.0.11.0-Public
+
+#IG configuration and attachment
+
+  DishServeIgw:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key:  Name
+          Value:  !Sub  ${AWS::StackName}-IGW
+
+  VpcIgwAttchment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:  !Ref  DishServeVpc
+      InternetGatewayId:  !Ref  DishServeIgw
+
+#Nat GW configuration with EIP
+
+  DishServeNatGw:
+    Type: AWS::EC2::NatGateway
+    DependsOn:  EIP
+    Properties:
+      AllocationId: !GetAtt [EIP, AllocationId]
+      SubnetId: !Ref PublicSub
+      Tags:
+        - Key:  Name
+          Value:  !Sub ${AWS::StackName}-NATGW
+
+  EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+#Route Table Configurations 
+
+  PubRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key:  Name
+          Value:  PubRoute
+      VpcId:  !Ref  DishServeVpc
+
+  PriRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key:  Name
+          Value:  PriRoute
+      VpcId:  !Ref  DishServeVpc
+
+#Subnet to Route Table associations
+
+  SubnetRouteAss01:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PubRouteTable
+      SubnetId: !Ref  PublicSub
+
+  SubnetRouteAss02:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PriRouteTable
+      SubnetId: !Ref  PrivateSub01
+
+  SubnetRouteAss03:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PriRouteTable
+      SubnetId: !Ref  PrivateSub02
+
+  SubnetRouteAss04:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PriRouteTable
+      SubnetId: !Ref  PrivateSub03
+
+#Route Configurations
+
+  IGRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock:  0.0.0.0/0
+      GatewayId: !Ref DishServeIgw
+      RouteTableId: !Ref  PubRouteTable
+
+  NatGWRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref  DishServeNatGw
+      RouteTableId: !Ref  PriRouteTable
+
+#Security Groups
+
+  WebDMZSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Web Ec2 and ALB SG
+      GroupName:  WebDMZSG
+      VpcId:  !Ref  DishServeVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  DBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: DB SG
+      GroupName:  DBSG
+      VpcId:  !Ref  DishServeVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId:  !GetAtt WebDMZSG.GroupId
+
+#ALB Configurations
+#https://github.com/aws-samples/ecs-refarch-cloudformation/blob/master/infrastructure/load-balancers.yaml
+
+  InternalAppALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType:  ipv4
+      Name: !Sub  ${AWS::StackName}-InternalAppALB
+      Scheme: internal
+      Subnets:
+        - !Ref  PrivateSub01
+        - !Ref  PrivateSub02
+      Type: application
+
+  InternalAppALBListner:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn:  !Ref  InternalAppALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref  InternalAppTargetGroup
+
+  InternalAppTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: InternalALBTG
+      VpcId:  !Ref  DishServeVpc
+      Port: 80
+      Protocol: HTTP
+
+
+#Launch Configuration with AutoScaling
+
+  InteralLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      LaunchConfigurationName:  InternalAppLC
+      InstanceType: t2.micro
+      ImageId:  "ami-0f86a70488991335e"
+      KeyName:  !Ref  DishKey
+      SecurityGroups:
+        - !Ref  WebDMZSG
+  InternalAutoScaling:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn:  InternalAppTargetGroup
+    Properties:
+      AutoScalingGroupName: InternalAutoScalingGroup
+      VPCZoneIdentifier:
+        - !Ref  PrivateSub01
+        - !Ref  PrivateSub02
+      LaunchConfigurationName: !Ref  InteralLaunchConfig
+      DesiredCapacity:  '2'
+      MinSize:  '2'
+      MaxSize:  '2'
+      TargetGroupARNs:
+        - !Ref  InternalAppTargetGroup
+
+#Route53 with ALB
+#https://operatingops.org/2019/09/29/route-53-how-to-alias-application-load-balancers/
+  HostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: sarith.internal
+      VPCs:
+        - VPCId:  !Ref  DishServeVpc
+          VPCRegion:  !Ref  'AWS::Region'
+
+  AliasRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName:  !GetAtt  InternalAppALB.DNSName
+        HostedZoneId: !GetAtt  InternalAppALB.CanonicalHostedZoneID
+      HostedZoneId: !Ref  HostedZone
+      Name: dish.sarith.internal
+      Type: A
+
+#Output ALB configs with routing using Listner
+Outputs:
+  LoadBalancer:
+    Description: A reference to the Application Load Balancer
+    Value: !Ref InternalAppALB
+
+  LoadBalancerUrl:
+    Description: The URL of the ALB
+    Value: !GetAtt  InternalAppALB.DNSName
+
+  Listener:
+    Description: A reference to a port 80 listener
+    Value: !Ref InternalAppALBListner
+
