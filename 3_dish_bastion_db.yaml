@@ -311,6 +311,8 @@ Resources:
 #https://computingforgeeks.com/setup-aws-rds-mysql-db-instance-with-cloudformation/
 #https://github.com/awslabs/aws-cloudformation-templates/blob/master/aws/services/RDS/RDS_MySQL_With_Read_Replica.yaml
 
+#https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_GettingStarted.CreatingConnecting.MySQL.html
+
 #  MySqlDB:
 #    Type: AWS::RDS::DBInstance
 #    Properties:
