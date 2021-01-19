@@ -1,0 +1,76 @@
+  InteralLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Metadata:
+      Comment:  Install PHP and MySql
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              httpd:  []
+              php:  []
+              php-mysql:  []
+              git:  []
+              ruby: []
+              wget: []
+            groups:
+              apache:  {}
+            users:
+              "ec2-user":
+                groups:
+                  - "ec2-user"
+                  - "apache"
+           sources:
+              "/var/www/html/SamplePage.php" : "wget https://raw.githubusercontent.com/ecloudvalley/AWS-Read-Replica-RDS-Database/master/SamplePage.php"
+              "/home/ec2-user/install"  : "wget https://aws-codedeploy-ap-southeast-1.s3.amazonaws.com/latest/install"
+            files:
+              "/var/www/html/healthy.html":
+                content:  healthy
+              "/var/www/html/index.php":
+                content:  !Sub  |
+                  <?php
+                  echo '<h1>PHP application for testing </h1>';
+                  ?>
+                mode: '0644'
+                owner:  apache
+                group:  apache
+              "/home/ec2-user/install":
+                mode: 0555
+            services:
+              sysvinit:
+                httpd:
+                  enabled:  'true'
+                  ensureRunning:  'true'
+            commands:
+              install:
+                command: "sudo ./install auto"
+                env:
+                  MAGIC: "install codeDeploy!"
+                cwd: "/home/ec2-user/"
+    Properties:
+      LaunchConfigurationName:  InternalAppLC
+#      Condition:  CreateProdResources
+#      InstanceType: !If [  CreateProdResources, t2.large, t2.micro]
+      InstanceType: t2.micro
+      ImageId:  "ami-00b8d9cb8a7161e41"
+      KeyName:  !Ref  DishKey
+      IamInstanceProfile: !Ref  imagebucketprofile
+      SecurityGroups:
+        - !Ref  WebDMZSG
+      UserData:
+        Fn::Base64: |
+           #!/bin/bash
+           yum update -y
+           yum install httpd php php-mysql -y
+           echo "healthy" > /var/www/html/healthy.html
+           groupadd www
+           usermod -a -G www ec2-user
+           chown -R root:www /var/www
+           chmod 2775 /var/www
+           find /var/www -type d -exec chmod 2775 {} +
+           find /var/www -type f -exec chmod 0664 {} +
+           mkdir -p /var/www/inc
+           wget https://raw.githubusercontent.com/ecloudvalley/AWS-Read-Replica-RDS-Database/master/SamplePage.php
+           mv SamplePage.php /var/www/html/
+           chkconfig httpd on
+           systemctl start httpd
+

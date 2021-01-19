@@ -1,14 +1,5 @@
 ---
 Parameters:
-  EnvType:
-    Description:  Select the Environment to create
-    Type: String
-    Default:  dev
-    AllowedValues:
-      - dev
-      - prod
-      - test
-    ConstraintDescription:  Must specify the environment
   DishKey:
     Description:  Name of an existing EC2 KeyPair to enable SSH access to the instances. Linked to AWS Parameter
     Type: AWS::EC2::KeyPair::KeyName
@@ -21,11 +12,6 @@ Parameters:
 #  s3rdssnapshotname:
 #    Description:  Name for S3 bucket to hold rds snapshots
 #    Type: String
-
-Conditions:
-  CreateProdResources:  !Equals [ !Ref EnvType, prod ]
-  CreateTestResources:  !Equals [ !Ref EnvType, test ]
-  CreateDevResources:  !Equals [ !Ref EnvType, dev ]
 
 Resources:
   DishServeVpc:
@@ -316,8 +302,6 @@ Resources:
     Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
       LaunchConfigurationName:  InternalAppLC
-#      Condition:  CreateProdResources
-#      InstanceType: !If [  CreateProdResources, t2.large, t2.micro]
       InstanceType: t2.micro
       ImageId:  "ami-00b8d9cb8a7161e41"
       KeyName:  !Ref  DishKey
@@ -328,7 +312,7 @@ Resources:
         Fn::Base64: |
            #!/bin/bash
            yum update -y
-           yum install httpd php php-mysql git ruby wget -y
+           yum install httpd php php-mysql -y
            echo "healthy" > /var/www/html/healthy.html
            groupadd www
            usermod -a -G www ec2-user
@@ -339,26 +323,21 @@ Resources:
            mkdir -p /var/www/inc
            wget https://raw.githubusercontent.com/ecloudvalley/AWS-Read-Replica-RDS-Database/master/SamplePage.php
            mv SamplePage.php /var/www/html/
-           cd /home/ec2-user
-           wget https://aws-codedeploy-ap-southeast-1.s3.amazonaws.com/latest/install
-           chmod +x ./install
-           sudo ./install auto
            chkconfig httpd on
            systemctl start httpd
 
   InternalAutoScaling:
     Type: AWS::AutoScaling::AutoScalingGroup
     DependsOn:  InternalAppTargetGroup
-#    Condition:  CreateProdResources
     Properties:
       AutoScalingGroupName: InternalAutoScalingGroup
       VPCZoneIdentifier:
         - !Ref  PrivateSub01
         - !Ref  PrivateSub02
       LaunchConfigurationName: !Ref  InteralLaunchConfig
-      DesiredCapacity:  !If [ CreateProdResources,  '4', '2']
-      MinSize:  !If [ CreateProdResources,  '4', '2']
-      MaxSize:  !If [ CreateProdResources,  '4', '2']
+      DesiredCapacity:  '2'
+      MinSize:  '2'
+      MaxSize:  '2'
       TargetGroupARNs:
         - !Ref  InternalAppTargetGroup
 
@@ -382,6 +361,7 @@ Resources:
         EvaluateTargetHealth: true
       HostedZoneId: !Ref  HostedZone
       Name: www.sarithdish.tk
+      TTL:  '60'
       Type: A
 
 #Create DB with subnet
@@ -478,33 +458,8 @@ Resources:
 #CI-CD creation
 #https://medium.com/@elmanhasa/ci-cd-in-aws-configure-auto-scaling-for-codedeploy-28063b9e714
 #https://towardsdatascience.com/ci-cd-logical-and-practical-approach-to-build-four-step-pipeline-on-aws-3f54183068ec
+  
 
-
-#Code Build
-#buildspec.yml
-#version: 0.2
-#phases:
-#  install:
-#    runtime-versions:
-#      nodejs: 10
-#    commands:
-#      - echo "installing"
-#
-#  build:
-#    commands:
-#      - grep -Fq "test" index.html
-
-#Code Deploy
-#appspec.yml
-#version: 0.0
-#os: linux
-#files:
-# - source: /www
-#   destination: /var/www/html/www
-# - source: /index.php
-#   destination: /var/www/html/index.php
-
-#https://aws-codedeploy-ap-southeast-1.s3.amazonaws.com/latest/install
 
 
 #Output ALB configs with routing using Listner
