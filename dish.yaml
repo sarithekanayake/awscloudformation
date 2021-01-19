@@ -328,7 +328,7 @@ Resources:
         Fn::Base64: |
            #!/bin/bash
            yum update -y
-           yum install httpd php php-mysql git ruby wget -y
+           yum install httpd php php-mysqli git ruby wget -y
            echo "healthy" > /var/www/html/healthy.html
            groupadd www
            usermod -a -G www ec2-user
