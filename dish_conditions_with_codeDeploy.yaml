@@ -1,0 +1,566 @@
+---
+Parameters:
+  EnvType:
+    Description:  Select the Environment to create
+    Type: String
+    Default:  dev
+    AllowedValues:
+      - dev
+      - prod
+      - test
+    ConstraintDescription:  Must specify the environment
+  DishKey:
+    Description:  Name of an existing EC2 KeyPair to enable SSH access to the instances. Linked to AWS Parameter
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription:  Must be the name of an existing EC2 KeyPair.
+
+#  s3imagebucketname:
+#    Description:  Name for S3 bucket to hold images
+#    Type: String
+
+#  s3rdssnapshotname:
+#    Description:  Name for S3 bucket to hold rds snapshots
+#    Type: String
+
+Conditions:
+  CreateProdResources:  !Equals [ !Ref EnvType, prod ]
+  CreateTestResources:  !Equals [ !Ref EnvType, test ]
+  CreateDevResources:  !Equals [ !Ref EnvType, dev ]
+
+Resources:
+  DishServeVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock:  10.0.0.0/16
+      Tags:
+        - Key:  Name
+          Value:  !Sub  ${AWS::StackName}-VPC
+
+#Subnet Creations
+
+  PrivateSub01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.1.0/24
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  DishServeVpc
+      Tags:
+        - Key:  Name
+          Value:  10.0.1.0-Private
+
+  PrivateSub02:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.2.0/24
+      AvailabilityZone: !Select [1, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  DishServeVpc
+      Tags:
+        - Key:  Name
+          Value:  10.0.2.0-Private
+
+  PrivateSub03:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.3.0/24
+      AvailabilityZone: !Select [2, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  DishServeVpc
+      Tags:
+        - Key:  Name
+          Value:  10.0.3.0-Private
+
+  PrivateSub04:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.4.0/24
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  DishServeVpc
+      Tags:
+        - Key:  Name
+          Value:  10.0.4.0-Private
+
+  PublicSub01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.11.0/24
+      MapPublicIpOnLaunch:  True
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  DishServeVpc
+      Tags:
+        - Key:  Name
+          Value:  10.0.11.0-Public01
+  
+  PublicSub02:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.12.0/24
+      MapPublicIpOnLaunch:  True
+      AvailabilityZone: !Select [1, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  DishServeVpc
+      Tags:
+        - Key:  Name
+          Value:  10.0.12.0-Public02
+
+#IG configuration and attachment
+
+  DishServeIgw:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key:  Name
+          Value:  !Sub  ${AWS::StackName}-IGW
+
+  VpcIgwAttchment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:  !Ref  DishServeVpc
+      InternetGatewayId:  !Ref  DishServeIgw
+
+#Nat GW configuration with EIP
+
+  DishServeNatGw:
+    Type: AWS::EC2::NatGateway
+    DependsOn:  EIP
+    Properties:
+      AllocationId: !GetAtt [EIP, AllocationId]
+      SubnetId: !Ref PublicSub01
+      Tags:
+        - Key:  Name
+          Value:  !Sub ${AWS::StackName}-NATGW
+
+  EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+#Route Table Configurations 
+
+  PubRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key:  Name
+          Value:  PubRoute
+      VpcId:  !Ref  DishServeVpc
+
+  PriRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key:  Name
+          Value:  PriRoute
+      VpcId:  !Ref  DishServeVpc
+
+#Subnet to Route Table associations
+
+  SubnetRouteAss01:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PubRouteTable
+      SubnetId: !Ref  PublicSub01
+
+  SubnetRouteAss02:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PriRouteTable
+      SubnetId: !Ref  PrivateSub01
+
+  SubnetRouteAss03:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PriRouteTable
+      SubnetId: !Ref  PrivateSub02
+
+  SubnetRouteAss04:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PriRouteTable
+      SubnetId: !Ref  PrivateSub03
+
+  SubnetRouteAss05:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PubRouteTable
+      SubnetId: !Ref  PublicSub02
+
+#Route Configurations
+
+  IGRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock:  0.0.0.0/0
+      GatewayId: !Ref DishServeIgw
+      RouteTableId: !Ref  PubRouteTable
+
+  NatGWRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref  DishServeNatGw
+      RouteTableId: !Ref  PriRouteTable
+
+#Security Groups
+
+  WebDMZSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Web Ec2 and ALB SG
+      GroupName:  WebDMZSG
+      VpcId:  !Ref  DishServeVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: 8
+          ToPort: -1
+          CidrIp: 10.0.0.0/16
+
+  DBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: DB SG
+      GroupName:  DBSG
+      VpcId:  !Ref  DishServeVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId:  !GetAtt WebDMZSG.GroupId
+
+  ALBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId:  !Ref  DishServeVpc
+      GroupDescription: Enable HTTP/HTTPS access
+      SecurityGroupIngress:
+        - IpProtocol: 'tcp'
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: 'tcp'
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp: 0.0.0.0/0
+
+#Bastion Host
+#Amazon Linux - ami-00b8d9cb8a7161e41
+#Rhel - ami-0f86a70488991335e
+  BastionHost:
+    Type: AWS::EC2::Instance
+    Properties:
+      IamInstanceProfile: !Ref  imagebucketprofile
+      InstanceType: t2.micro
+      ImageId:  "ami-00b8d9cb8a7161e41"
+      KeyName:  !Ref  DishKey
+      SubnetId: !Ref  PublicSub01
+      SecurityGroupIds:
+        - !GetAtt  WebDMZSG.GroupId
+      Tags:
+        - Key:  Name
+          Value:  BastionHost
+
+#ALB Configurations
+#https://github.com/aws-samples/ecs-refarch-cloudformation/blob/master/infrastructure/load-balancers.yaml
+
+  InternalAppALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType:  ipv4
+      Name: !Sub  ${AWS::StackName}-InternalAppALB
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref  ALBSecurityGroup
+        - !Ref  WebDMZSG
+      Subnets:
+        - !Ref  PublicSub01
+        - !Ref  PublicSub02
+      Type: application
+
+  InternalAppALBListner:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn:  !Ref  InternalAppALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref  InternalAppTargetGroup
+
+  InternalAppTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: InternalALBTG
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthyThresholdCount:  2
+      HealthCheckTimeoutSeconds:  5
+      HealthCheckIntervalSeconds: 10
+      UnhealthyThresholdCount:  3
+      HealthCheckPath:  /healthy.html
+      VpcId:  !Ref  DishServeVpc
+      Port: 80
+      Protocol: HTTP
+
+#Launch Configuration with AutoScaling
+
+  InteralLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Metadata:
+      Comment:  Install PHP and MySql
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              httpd:  []
+              php:  []
+              php-mysql:  []
+              git:  []
+              ruby: []
+              wget: []
+            groups:
+              apache:  {}
+            users:
+              "ec2-user":
+                groups:
+                  - "ec2-user"
+                  - "apache"
+            sources:
+              "/var/www/html/SamplePage.php" : "wget https://raw.githubusercontent.com/ecloudvalley/AWS-Read-Replica-RDS-Database/master/SamplePage.php"
+              "/home/ec2-user/install"  : "wget https://aws-codedeploy-ap-southeast-1.s3.amazonaws.com/latest/install"
+            files:
+              "/var/www/html/healthy.html":
+                content:  healthy
+              "/var/www/html/index.php":
+                content:  !Sub  |
+                  <?php
+                  echo '<h1>PHP application for testing </h1>';
+                  ?>
+                mode: '0644'
+                owner:  apache
+                group:  apache
+              "/home/ec2-user/install":
+                mode: 0555
+            services:
+              sysvinit:
+                httpd:
+                  enabled:  'true'
+                  ensureRunning:  'true'
+            commands:
+              install:
+                command: "sudo ./install auto"
+                env:
+                  MAGIC: "install codeDeploy!"
+                cwd: "/home/ec2-user/"
+
+    Properties:
+      LaunchConfigurationName:  InternalAppLC
+#      Condition:  CreateProdResources
+#      InstanceType: !If [  CreateProdResources, t2.large, t2.micro]
+      InstanceType: t2.micro
+      ImageId:  "ami-00b8d9cb8a7161e41"
+      KeyName:  !Ref  DishKey
+      IamInstanceProfile: !Ref  imagebucketprofile
+      SecurityGroups:
+        - !Ref  WebDMZSG
+#      UserData:
+#        Fn::Base64: |
+#           #!/bin/bash
+#           yum update -y
+#           yum install httpd php php-mysql -y
+#           echo "healthy" > /var/www/html/healthy.html
+#           groupadd www
+#           usermod -a -G www ec2-user
+#           chown -R root:www /var/www
+#           chmod 2775 /var/www
+#           find /var/www -type d -exec chmod 2775 {} +
+#           find /var/www -type f -exec chmod 0664 {} +
+#           mkdir -p /var/www/inc
+#           wget https://raw.githubusercontent.com/ecloudvalley/AWS-Read-Replica-RDS-Database/master/SamplePage.php
+#           mv SamplePage.php /var/www/html/
+#           chkconfig httpd on
+#           systemctl start httpd
+
+  InternalAutoScaling:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn:  InternalAppTargetGroup
+#    Condition:  CreateProdResources
+    Properties:
+      AutoScalingGroupName: InternalAutoScalingGroup
+      VPCZoneIdentifier:
+        - !Ref  PrivateSub01
+        - !Ref  PrivateSub02
+      LaunchConfigurationName: !Ref  InteralLaunchConfig
+      DesiredCapacity:  !If [ CreateProdResources,  '4', '2']
+      MinSize:  !If [ CreateProdResources,  '4', '2']
+      MaxSize:  !If [ CreateProdResources,  '4', '2']
+      TargetGroupARNs:
+        - !Ref  InternalAppTargetGroup
+
+#Route53 with ALB
+#https://operatingops.org/2019/09/29/route-53-how-to-alias-application-load-balancers/
+  HostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: sarithdish.tk
+      VPCs:
+        - VPCId:  !Ref  DishServeVpc
+          VPCRegion:  !Ref  'AWS::Region'
+
+  AliasRecord:
+    Type: AWS::Route53::RecordSet
+    DependsOn:  InternalAppALB
+    Properties:
+      AliasTarget:
+        DNSName:  !GetAtt  InternalAppALB.DNSName
+        HostedZoneId: !GetAtt  InternalAppALB.CanonicalHostedZoneID
+        EvaluateTargetHealth: true
+      HostedZoneId: !Ref  HostedZone
+      Name: www.sarithdish.tk
+      Type: A
+
+#Create DB with subnet
+#https://computingforgeeks.com/setup-aws-rds-mysql-db-instance-with-cloudformation/
+#https://github.com/awslabs/aws-cloudformation-templates/blob/master/aws/services/RDS/RDS_MySQL_With_Read_Replica.yaml
+
+#  MySqlDB:
+#    Type: AWS::RDS::DBInstance
+#    Properties:
+#      Engine: MySQL
+#      DBInstanceIdentifier: dishservedb
+#      DBName: dishservedb
+#      DBInstanceClass:  db.t2.micro
+#      MasterUsername: dishservedb
+#      MasterUserPassword: dishservedb
+#      DBSubnetGroupName:  !Ref  DBSubnet
+#      PubliclyAccessible: false
+#      AllocatedStorage: '20'
+#      VPCSecurityGroups:
+#        - !Ref  DBSG
+#      Tags:
+#        - Key:  Name
+#          Value:  MySQLPri
+
+#  DBSubnet:
+#    Type: AWS::RDS::DBSubnetGroup
+#    Properties:
+#      DBSubnetGroupDescription: Subnet group for MySQL Database
+#      DBSubnetGroupName:  MySQLDB
+#      SubnetIds:
+#        - !Ref  PrivateSub03      
+#        - !Ref  PrivateSub04
+
+#  ReplicaDB:
+#    Type: AWS::RDS::DBInstance
+#    Properties:
+#      SourceDBInstanceIdentifier: !Ref  MySqlDB
+#      DBInstanceClass:  db.t2.micro
+#      Tags:
+#        - Key:  Name
+#          Value:  Read Replica
+
+
+#S3 Buckets
+#  s3imagebucket:
+#    Type: AWS::S3::Bucket
+#    Properties:
+#      BucketName: !Sub ${s3imagebucketname}
+#    DependsOn: 
+#      - BastionHost
+
+#  s3rdssnapshot:
+#    Type: AWS::S3::Bucket
+#    Properties:
+#      BucketName: !Sub ${s3rdssnapshotname}
+#    DependsOn:
+#      - BastionHost
+     
+#IAM roles creation
+#https://www.bogotobogo.com/DevOps/AWS/aws-creating-IAM-Roles-and-associating-them-with-EC2-Instances-in-CloudFormation.php
+  imagebucketprofile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref  S3WritableRole
+
+  S3WritableRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version:  2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:  ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+
+  RolePolicies:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ec2tos3instancepolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: 's3:*'
+            Resource: '*'
+      Roles:
+        - !Ref  S3WritableRole
+
+
+#CI-CD creation
+#https://medium.com/@elmanhasa/ci-cd-in-aws-configure-auto-scaling-for-codedeploy-28063b9e714
+#https://towardsdatascience.com/ci-cd-logical-and-practical-approach-to-build-four-step-pipeline-on-aws-3f54183068ec
+#https://github.com/hasael/HelloWorldWebCore/blob/master/appspec.yml
+
+#Code Build
+#buildspec.yml
+#version: 0.2
+#phases:
+#  install:
+#    runtime-versions:
+#      nodejs: 10
+#    commands:
+#      - echo "installing"
+#
+#  build:
+#    commands:
+#      - grep -Fq "test" index.html
+
+#Code Deploy
+#appspec.yml
+#version: 0.0
+#os: linux
+#files:
+# - source: /www
+#   destination: /var/www/html/www
+# - source: /index.php
+#   destination: /var/www/html/index.php
+
+#https://aws-codedeploy-ap-southeast-1.s3.amazonaws.com/latest/install
+
+
+#Output ALB configs with routing using Listner
+Outputs:
+  LoadBalancer:
+    Description: A reference to the Application Load Balancer
+    Value: !Ref InternalAppALB
+
+  LoadBalancerUrl:
+    Description: The URL of the ALB
+    Value: !GetAtt  InternalAppALB.DNSName
+
+  Listener:
+    Description: A reference to a port 80 listener
+    Value: !Ref InternalAppALBListner
+
