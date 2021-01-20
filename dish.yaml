@@ -14,13 +14,13 @@ Parameters:
     Type: AWS::EC2::KeyPair::KeyName
     ConstraintDescription:  Must be the name of an existing EC2 KeyPair.
 
-#  s3imagebucketname:
-#    Description:  Name for S3 bucket to hold images
-#    Type: String
+  s3imagebucketname:
+    Description:  Name for S3 bucket to hold images
+    Type: String
 
-#  s3rdssnapshotname:
-#    Description:  Name for S3 bucket to hold rds snapshots
-#    Type: String
+  s3rdssnapshotname:
+    Description:  Name for S3 bucket to hold rds snapshots
+    Type: String
 
 Conditions:
   CreateProdResources:  !Equals [ !Ref EnvType, prod ]
@@ -259,7 +259,7 @@ Resources:
     Properties:
       IamInstanceProfile: !Ref  imagebucketprofile
       InstanceType: t2.micro
-      ImageId:  "ami-00b8d9cb8a7161e41"
+      ImageId:  "ami-0f86a70488991335e"
       KeyName:  !Ref  DishKey
       SubnetId: !Ref  PublicSub01
       SecurityGroupIds:
@@ -319,7 +319,7 @@ Resources:
 #      Condition:  CreateProdResources
 #      InstanceType: !If [  CreateProdResources, t2.large, t2.micro]
       InstanceType: t2.micro
-      ImageId:  "ami-00b8d9cb8a7161e41"
+      ImageId:  "ami-0f86a70488991335e"
       KeyName:  !Ref  DishKey
       IamInstanceProfile: !Ref  imagebucketprofile
       SecurityGroups:
@@ -426,19 +426,19 @@ Resources:
 
 
 #S3 Buckets
-#  s3imagebucket:
-#    Type: AWS::S3::Bucket
-#    Properties:
-#      BucketName: !Sub ${s3imagebucketname}
-#    DependsOn: 
-#      - BastionHost
+  s3imagebucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${s3imagebucketname}
+    DependsOn: 
+      - BastionHost
 
-#  s3rdssnapshot:
-#    Type: AWS::S3::Bucket
-#    Properties:
-#      BucketName: !Sub ${s3rdssnapshotname}
-#    DependsOn:
-#      - BastionHost
+  s3rdssnapshot:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${s3rdssnapshotname}
+    DependsOn:
+      - BastionHost
      
 #IAM roles creation
 #https://www.bogotobogo.com/DevOps/AWS/aws-creating-IAM-Roles-and-associating-them-with-EC2-Instances-in-CloudFormation.php
@@ -485,14 +485,12 @@ Resources:
 #version: 0.2
 #phases:
 #  install:
-#    runtime-versions:
-#      nodejs: 10
 #    commands:
-#      - echo "installing"
+#      - php -v
 #
 #  build:
 #    commands:
-#      - grep -Fq "test" index.html
+#      - date
 
 #Code Deploy
 #appspec.yml
